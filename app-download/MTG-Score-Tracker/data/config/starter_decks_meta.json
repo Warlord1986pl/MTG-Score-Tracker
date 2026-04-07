@@ -1,0 +1,25 @@
+{
+  "source": "https://api.videreproject.com/metagame",
+  "window_days": 14,
+  "min_date": "2026-03-20",
+  "max_date": "2026-04-03",
+  "formats": [
+    "Standard",
+    "Modern",
+    "Pioneer",
+    "Vintage",
+    "Legacy",
+    "Pauper",
+    "Premodern"
+  ],
+  "counts": {
+    "Standard": 32,
+    "Modern": 32,
+    "Pioneer": 32,
+    "Vintage": 24,
+    "Legacy": 31,
+    "Pauper": 32,
+    "Premodern": 31
+  },
+  "unique_decks": 182
+}

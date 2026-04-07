@@ -1,0 +1,3 @@
+﻿MTG Score Tracker portable package
+Run MTGScoreTracker.exe
+Data is stored in the data\ folder next to the exe.

@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+*.spec.bak
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# User data (not committed to public repo)
+data/leagues/
+data/global/history.md
+data/global/stats.json
+data/config/decks.json
+outputs/
+!data/leagues/.gitkeep
+!data/global/.gitkeep
+!data/config/.gitkeep
+
+# Installer build artifacts
+build/Output/
+build/*.exe
+build/dist/
+build/work/
+
+# Cache
+*.tmp
+.tmp_restore_data/
