@@ -6,8 +6,6 @@ __pycache__/
 .Python
 *.egg
 *.egg-info/
-dist/
-build/
 *.spec.bak
 
 # Virtual environments
@@ -15,26 +13,34 @@ venv/
 .venv/
 env/
 
-# IDE
-.vscode/settings.json
+# IDE / editor settings
+.vscode/
+!.vscode/extensions.json
 .idea/
 
-# User data (not committed to public repo)
-data/leagues/
-data/global/history.md
-data/global/stats.json
-data/config/decks.json
-outputs/
-!data/leagues/.gitkeep
-!data/global/.gitkeep
-!data/config/.gitkeep
+# Runtime / user-generated app data
+source/data/leagues/
+source/data/global/history.md
+source/data/global/stats.json
+source/data/config/decks.json
+source/data/config/app_settings.json
+source/outputs/
 
-# Installer build artifacts
-build/Output/
-build/*.exe
-build/dist/
-build/work/
+# Build artifacts
+source/build/dist/
+source/build/work/
+source/build/release/
+source/build/Output/
+app-download/MTG-Score-Tracker/
+app-download/*.zip
+*.exe
 
-# Cache
+# Temporary files
 *.tmp
+*.log
 .tmp_restore_data/
+source/.tmp_restore_data/
+
+# OS files
+.DS_Store
+Thumbs.db
