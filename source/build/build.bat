@@ -8,8 +8,22 @@ cd /d "%~dp0.."
 
 set DOWNLOAD_DIR=..\app-download
 set RELEASE_DIR=%DOWNLOAD_DIR%\MTG-Score-Tracker
+set EXISTING_DATA_DIR=%RELEASE_DIR%\data
+set DATA_BACKUP_DIR=build\release_data_backup
 
 echo === MTG Score Tracker Build ===
+
+REM Step 0: Preserve packaged user data
+if exist "%DATA_BACKUP_DIR%" rmdir /s /q "%DATA_BACKUP_DIR%"
+if exist "%EXISTING_DATA_DIR%" (
+    echo [0/4] Backing up saved leagues and config...
+    mkdir "%DATA_BACKUP_DIR%"
+    xcopy "%EXISTING_DATA_DIR%" "%DATA_BACKUP_DIR%\data" /E /I /Y >nul
+    if %ERRORLEVEL% GEQ 4 (
+        echo ERROR: Failed to back up existing packaged data.
+        exit /b 1
+    )
+)
 
 REM Step 1: Clean previous build
 if exist build\dist rmdir /s /q build\dist
@@ -44,6 +58,16 @@ if not exist "%RELEASE_DIR%\data\global\history.md" echo # League History> "%REL
 if not exist "%RELEASE_DIR%\data\global\stats.json" echo {}> "%RELEASE_DIR%\data\global\stats.json"
 if not exist "%RELEASE_DIR%\data\config\decks.json" echo {}> "%RELEASE_DIR%\data\config\decks.json"
 if not exist "%RELEASE_DIR%\data\config\app_settings.json" echo {}> "%RELEASE_DIR%\data\config\app_settings.json"
+
+if exist "%DATA_BACKUP_DIR%\data" (
+    echo [2b/4] Restoring saved leagues and config...
+    xcopy "%DATA_BACKUP_DIR%\data" "%RELEASE_DIR%\data" /E /I /Y >nul
+    if %ERRORLEVEL% GEQ 4 (
+        echo ERROR: Failed to restore saved packaged data.
+        exit /b 1
+    )
+    rmdir /s /q "%DATA_BACKUP_DIR%"
+)
 
 echo MTG Score Tracker portable package > "%RELEASE_DIR%\START_HERE.txt"
 echo Run MTGScoreTracker.exe >> "%RELEASE_DIR%\START_HERE.txt"

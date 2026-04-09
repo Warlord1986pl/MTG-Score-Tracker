@@ -137,6 +137,64 @@ class FileStorageServiceTests(unittest.TestCase):
         self.assertEqual(len(parsed["games"]), 3)
         self.assertEqual(parsed["sideboard_notes"], "+2 Veil, -2 Bolt")
 
+    def test_match_markdown_preserves_multiline_notes(self) -> None:
+        league = self.storage.create_league(
+            LeagueCreateInput(
+                event_type="League",
+                format_name="Modern",
+                deck_name="Zoo",
+                deck_archetype="Aggro",
+            )
+        )
+
+        result = self.storage.create_match(
+            league.league_path,
+            MatchCreateInput(
+                opponent_deck="Creativity",
+                opponent_archetype="Combo",
+                score="2-1",
+                sideboard_notes="+2 Damping Sphere\n-2 Ragavan, Nimble Pilferer",
+                key_moments="G1: kept sketchy hand\nG2: played around Veil",
+                observations="Need more grave hate\nConsign felt great",
+            ),
+        )
+
+        match_path = Path(result.match_path)
+        text = match_path.read_text(encoding="utf-8")
+        parsed = self.storage._parse_match_markdown(text)
+
+        self.assertEqual(parsed["sideboard_notes"], "+2 Damping Sphere\n-2 Ragavan, Nimble Pilferer")
+        self.assertEqual(parsed["key_moments"], "G1: kept sketchy hand\nG2: played around Veil")
+        self.assertEqual(parsed["observations"], "Need more grave hate\nConsign felt great")
+
+    def test_league_report_includes_card_reference_context(self) -> None:
+        league = self.storage.create_league(
+            LeagueCreateInput(
+                event_type="League",
+                format_name="Modern",
+                deck_name="Zoo",
+                deck_archetype="Aggro",
+                deck_list_name="Zoo_OBM_v1.0",
+                deck_list_content="4 Orcish Bowmasters\n4 Leyline of the Guildpact\n\nSideboard\n4 Consign to Memory\n2 Wear / Tear\n",
+                deck_list_source="manual",
+            )
+        )
+
+        self.storage.create_match(
+            league.league_path,
+            MatchCreateInput(
+                opponent_deck="Belcher",
+                opponent_archetype="Combo",
+                score="2-1",
+            ),
+        )
+
+        league_md = (Path(league.league_path) / "league.md").read_text(encoding="utf-8")
+        self.assertIn("## Card Shortcut Legend", league_md)
+        self.assertIn("OBM = Orcish Bowmasters", league_md)
+        self.assertIn("LOTG = Leyline of the Guildpact", league_md)
+        self.assertIn("## Key Card Reference (Scryfall)", league_md)
+
     def test_global_stats_aggregates_by_archetype(self) -> None:
         league = self.storage.create_league(
             LeagueCreateInput(

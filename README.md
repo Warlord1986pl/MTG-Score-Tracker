@@ -13,6 +13,11 @@ Run:
 
 > Keep `MTGScoreTracker.exe`, `_internal/`, and `data/` in the same folder. Do **not** copy only the `.exe` file.
 
+### For testers
+A short English tester cheat sheet is available here:
+
+- [`app-download/TESTER_QUICK_GUIDE.md`](app-download/TESTER_QUICK_GUIDE.md)
+
 ### For development
 The source code lives in `source/`.
 

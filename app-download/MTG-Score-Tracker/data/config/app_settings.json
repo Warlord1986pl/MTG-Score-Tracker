@@ -1,5 +1,18 @@
 {
   "app_version": "1.0.0",
   "theme": "default",
-  "active_league_path": ""
+  "active_league_path": "G:\\GitHub\\MTG-Score-Tracker\\app-download\\MTG-Score-Tracker\\data\\leagues\\2026-04\\league_mtgo\\001",
+  "last_game_defaults": {
+    "play_draw": "Play",
+    "hand_7": "No Lands",
+    "hand_6": "Good",
+    "hand_5": "Good",
+    "hand_4": "Good",
+    "hand_3": "Good",
+    "mulligan_suggested": true,
+    "mulligan_count": 4,
+    "opening_hand_size": 3,
+    "draw_type": "Normal",
+    "result": "Win"
+  }
 }

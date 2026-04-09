@@ -1,1 +1,13 @@
-{"total_matches": 0, "wins": 0, "losses": 0, "leagues": []}
+{
+  "total_matches": 5,
+  "total_wins": 5,
+  "total_losses": 0,
+  "winrate": 100.0,
+  "winrate_by_archetype": {
+    "Aggro": 100.0
+  },
+  "mulligan_rate": 50.0,
+  "mana_screw_rate": 0.0,
+  "mana_flood_rate": 0.0,
+  "updated_at": "2026-04-09T22:31:16Z"
+}

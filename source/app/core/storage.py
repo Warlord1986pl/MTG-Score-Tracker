@@ -10,6 +10,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
+from .card_tools import build_card_shortcuts, extract_card_names_from_decklist, fetch_scryfall_card_reference
 from .models import (
     GameInput,
     GlobalStats,
@@ -789,7 +790,7 @@ class FileStorageService:
         self.write_text_atomic(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
     def read_json(self, path: str | Path) -> dict[str, Any]:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
+        return json.loads(Path(path).read_text(encoding="utf-8-sig"))
 
     def create_data_backup(self, destination_dir: str | Path | None = None) -> str:
         """Create a timestamped zip backup of the whole data folder."""
@@ -1017,6 +1018,10 @@ class FileStorageService:
         matches: list[dict[str, Any]],
         decklist: str,
     ) -> str:
+        card_names = extract_card_names_from_decklist(decklist)
+        card_shortcuts = build_card_shortcuts(card_names)
+        scryfall_reference = fetch_scryfall_card_reference(card_names, cache_dir=self.data_root / "cache")
+
         lines = [
             f"# League Report - {meta.get('league_id', 'unknown')}",
             "",
@@ -1047,9 +1052,37 @@ class FileStorageService:
         else:
             lines.append("_No decklist attached._")
 
+        lines.extend(["", "## Card Shortcut Legend", ""])
+        if card_shortcuts:
+            for shortcut, card_name in sorted(card_shortcuts.items()):
+                if len(shortcut) <= 5:
+                    lines.append(f"- {shortcut} = {card_name}")
+        else:
+            lines.append("- No deck-specific shortcuts available.")
+
+        lines.extend(["", "## Key Card Reference (Scryfall)", ""])
+        if scryfall_reference:
+            for card in scryfall_reference:
+                lines.append(f"### {card.get('name', '')}")
+                mana_cost = str(card.get("mana_cost", "")).strip()
+                type_line = str(card.get("type_line", "")).strip()
+                oracle_text = str(card.get("oracle_text", "")).strip()
+                scryfall_uri = str(card.get("scryfall_uri", "")).strip()
+                if mana_cost:
+                    lines.append(f"- Mana Cost: {mana_cost}")
+                if type_line:
+                    lines.append(f"- Type Line: {type_line}")
+                if oracle_text:
+                    lines.append(f"- Oracle Text: {oracle_text}")
+                if scryfall_uri:
+                    lines.append(f"- Scryfall: {scryfall_uri}")
+                lines.append("")
+        else:
+            lines.append("- No live Scryfall card reference was available; decklist-only context is still included.")
+            lines.append("")
+
         lines.extend(
             [
-            "",
             "## Summary Stats",
             "",
             f"- Record: {stats['wins']}-{stats['losses']}",
@@ -1138,12 +1171,13 @@ class FileStorageService:
             [
                 "## Notes",
                 "",
-                f"- Sideboarding: {payload.sideboard_notes}",
-                f"- Key Moments: {payload.key_moments}",
-                f"- Observations: {payload.observations}",
-                "",
             ]
         )
+
+        lines.extend(self._render_multiline_note_field("Sideboarding", payload.sideboard_notes))
+        lines.extend(self._render_multiline_note_field("Key Moments", payload.key_moments))
+        lines.extend(self._render_multiline_note_field("Observations", payload.observations))
+        lines.append("")
 
         return "\n".join(lines)
 
@@ -1262,9 +1296,9 @@ class FileStorageService:
         heavy_mulligan = (
             self._extract_line_value(text, r"^- Heavy Mulligan Match:\s*(.*)$", default="No") == "Yes"
         )
-        sideboard_notes = self._extract_line_value(text, r"^- Sideboarding:\s*(.*)$")
-        key_moments = self._extract_line_value(text, r"^- Key Moments:\s*(.*)$")
-        observations = self._extract_line_value(text, r"^- Observations:\s*(.*)$")
+        sideboard_notes = self._extract_multiline_note_field(text, "Sideboarding")
+        key_moments = self._extract_multiline_note_field(text, "Key Moments")
+        observations = self._extract_multiline_note_field(text, "Observations")
 
         games: list[dict[str, Any]] = []
         for game_match in re.finditer(r"^### Game\s+(\d+)\s*$([\s\S]*?)(?=^### Game\s+\d+\s*$|\Z)", text, re.MULTILINE):
@@ -1405,10 +1439,59 @@ class FileStorageService:
         self.write_text_atomic(history_path, content + "\n".join(lines))
 
     def _extract_line_value(self, text: str, pattern: str, default: str = "") -> str:
-        match = re.search(pattern, text, re.MULTILINE)
-        if not match:
-            return default
-        return match.group(1).strip()
+        normalized = str(text).replace("\r\n", "\n").replace("\r", "\n")
+        for line in normalized.split("\n"):
+            match = re.search(pattern, line, re.MULTILINE)
+            if match:
+                return match.group(1).strip()
+        return default
+
+    def _render_multiline_note_field(self, label: str, value: str) -> list[str]:
+        normalized = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+        if "\n" not in normalized:
+            return [f"- {label}: {normalized.strip()}"]
+
+        lines = [f"- {label}:"]
+        for raw_line in normalized.split("\n"):
+            lines.append(f"  {raw_line.rstrip()}")
+        return lines
+
+    def _extract_multiline_note_field(self, text: str, label: str) -> str:
+        normalized = str(text).replace("\r\n", "\n").replace("\r", "\n")
+        lines = normalized.split("\n")
+        marker = f"- {label}:"
+
+        for idx, line in enumerate(lines):
+            if not line.startswith(marker):
+                continue
+
+            first_value = line[len(marker) :].lstrip()
+            collected: list[str] = [first_value] if first_value else []
+
+            cursor = idx + 1
+            while cursor < len(lines):
+                current = lines[cursor]
+                if re.match(r"^- [^:]+:\s*", current):
+                    break
+                if current.startswith("  "):
+                    collected.append(current[2:])
+                    cursor += 1
+                    continue
+                if current.strip() == "":
+                    if collected:
+                        collected.append("")
+                        cursor += 1
+                        continue
+                    cursor += 1
+                    continue
+                break
+
+            while collected and collected[-1] == "":
+                collected.pop()
+
+            return "\n".join(collected).strip()
+
+        return ""
 
     def _inline_text(self, text: str) -> str:
         normalized = str(text).replace("\r\n", "\n").replace("\r", "\n")

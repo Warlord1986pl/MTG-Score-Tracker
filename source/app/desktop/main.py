@@ -36,10 +36,11 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import QKeySequence, QPixmap, QShortcut, QTextCursor
 from PySide6.QtCore import QEvent, Qt, QStringListModel
 
 from app.core import AnalyticsConfig, AnalyticsService, FileStorageService, GameInput, LeagueCreateInput, MatchCreateInput
+from app.core.card_tools import build_decklist_autocomplete_terms
 
 
 DEFAULT_EVENT_TYPE_OPTIONS = [
@@ -96,6 +97,61 @@ SCORE_TO_GAME_RESULTS = {
     "0-2": ["Loss", "Loss"],
 }
 CARD_LINE_RE = re.compile(r"^(\d+)\s+(.+)$")
+
+
+class DeckAwareTextEdit(QTextEdit):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._completion_model = QStringListModel(self)
+        self._completer = QCompleter(self._completion_model, self)
+        self._completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self._completer.setFilterMode(Qt.MatchContains)
+        self._completer.setCompletionMode(QCompleter.PopupCompletion)
+        self._completer.setWidget(self)
+        self._completer.activated.connect(self._insert_completion)
+        self.setPlaceholderText("Decklist-aware autocomplete available. Type a card name or shortcut, or press Ctrl+Space.")
+
+    def set_completion_terms(self, terms: list[str]) -> None:
+        self._completion_model.setStringList(list(terms))
+
+    def _text_under_cursor(self) -> str:
+        cursor = self.textCursor()
+        cursor.select(QTextCursor.WordUnderCursor)
+        return cursor.selectedText().strip()
+
+    def _insert_completion(self, completion: str) -> None:
+        if not completion:
+            return
+        cursor = self.textCursor()
+        cursor.select(QTextCursor.WordUnderCursor)
+        cursor.removeSelectedText()
+        cursor.insertText(completion)
+        self.setTextCursor(cursor)
+
+    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+        if self._completer.popup().isVisible() and event.key() in {Qt.Key_Enter, Qt.Key_Return, Qt.Key_Tab, Qt.Key_Backtab, Qt.Key_Escape}:
+            event.ignore()
+            return
+
+        force_popup = event.key() == Qt.Key_Space and bool(event.modifiers() & Qt.ControlModifier)
+        if not force_popup:
+            super().keyPressEvent(event)
+
+        if self._completion_model.rowCount() == 0:
+            self._completer.popup().hide()
+            return
+
+        prefix = self._text_under_cursor()
+        if not force_popup and len(prefix) < 2:
+            self._completer.popup().hide()
+            return
+
+        self._completer.setCompletionPrefix(prefix)
+        popup = self._completer.popup()
+        popup.setCurrentIndex(self._completer.completionModel().index(0, 0))
+        rect = self.cursorRect()
+        rect.setWidth(max(320, popup.sizeHintForColumn(0) + 24))
+        self._completer.complete(rect)
 
 
 class DeckManagerDialog(QDialog):
@@ -463,12 +519,14 @@ class MainWindow(QMainWindow):
         self.deck_memory: dict[str, str] = {}
         self.starter_decks_by_format: dict[str, list[str]] = {}
         self._deck_names_model = QStringListModel(self)
+        self._deck_autocomplete_terms: list[str] = []
 
         self._build_ui()
         self._update_tournament_structure_state()
         self._setup_deck_autocomplete()
         self._load_deck_memory()
         self._load_game_defaults()
+        self._refresh_text_autocomplete_terms()
         self._refresh_league_selector()
         self._restore_active_league()
         self.score.currentTextChanged.connect(self._on_score_changed)
@@ -497,6 +555,32 @@ class MainWindow(QMainWindow):
 
         completer.setCompletionPrefix(query)
         completer.complete()
+
+    def _decklist_text_for_autocomplete(self) -> str:
+        if self.imported_decklist_content.strip():
+            return self.imported_decklist_content
+        if self.current_league_path:
+            try:
+                snapshot = self.storage.get_league_snapshot(self.current_league_path)
+                return str(snapshot.get("decklist", ""))
+            except Exception:
+                return ""
+        return ""
+
+    def _refresh_text_autocomplete_terms(self, decklist_text: str | None = None) -> None:
+        source_text = decklist_text if decklist_text is not None else self._decklist_text_for_autocomplete()
+        self._deck_autocomplete_terms = build_decklist_autocomplete_terms(source_text)
+        for widget in (
+            getattr(self, "changes", None),
+            getattr(self, "goal", None),
+            getattr(self, "concerns", None),
+            getattr(self, "notes", None),
+            getattr(self, "sideboard_notes", None),
+            getattr(self, "key_moments", None),
+            getattr(self, "observations", None),
+        ):
+            if isinstance(widget, DeckAwareTextEdit):
+                widget.set_completion_terms(self._deck_autocomplete_terms)
 
     def _resolve_repo_root(self) -> Path:
         if getattr(sys, "frozen", False):
@@ -1408,13 +1492,13 @@ class MainWindow(QMainWindow):
         form_left.addRow("Tournament Structure", tournament_row)
 
         form_right = QFormLayout()
-        self.changes = QTextEdit()
+        self.changes = DeckAwareTextEdit()
         self.changes.setToolTip("What changed in your deck compared to the previous version")
-        self.goal = QTextEdit()
+        self.goal = DeckAwareTextEdit()
         self.goal.setToolTip("Your goal for this event, for example testing a card or reaching 4-1")
-        self.concerns = QTextEdit()
+        self.concerns = DeckAwareTextEdit()
         self.concerns.setToolTip("Your concerns before the event, for example weak matchups")
-        self.notes = QTextEdit()
+        self.notes = DeckAwareTextEdit()
         self.notes.setToolTip("Any extra notes you want to remember")
 
         self.changes.setMaximumHeight(70)
@@ -1534,11 +1618,11 @@ class MainWindow(QMainWindow):
         form_left.addRow("Score", self.score)
 
         form_right = QFormLayout()
-        self.sideboard_notes = QTextEdit()
+        self.sideboard_notes = DeckAwareTextEdit()
         self.sideboard_notes.setToolTip("Cards in and out for sideboarding in this matchup")
-        self.key_moments = QTextEdit()
+        self.key_moments = DeckAwareTextEdit()
         self.key_moments.setToolTip("Key moments of the match, mistakes, turning points, important cards")
-        self.observations = QTextEdit()
+        self.observations = DeckAwareTextEdit()
         self.observations.setToolTip("General matchup observations about what worked and what did not")
 
         self.sideboard_notes.setMaximumHeight(72)
@@ -1679,6 +1763,7 @@ class MainWindow(QMainWindow):
         
         context_box = QGroupBox("League Context")
         context_layout = QVBoxLayout(context_box)
+        deck_terms = build_decklist_autocomplete_terms(str(snapshot.get("decklist", "")))
         
         meta = snapshot.get("meta", {})
         deck_context = meta.get("deck_context", {})
@@ -1688,30 +1773,34 @@ class MainWindow(QMainWindow):
         notes = str(deck_context.get("notes", "")).strip()
         
         changes_label = QLabel("Changes:")
-        changes_edit = QTextEdit()
+        changes_edit = DeckAwareTextEdit()
         changes_edit.setPlainText(changes)
         changes_edit.setMaximumHeight(50)
+        changes_edit.set_completion_terms(deck_terms)
         context_layout.addWidget(changes_label)
         context_layout.addWidget(changes_edit)
         
         goal_label = QLabel("Goal:")
-        goal_edit = QTextEdit()
+        goal_edit = DeckAwareTextEdit()
         goal_edit.setPlainText(goal)
         goal_edit.setMaximumHeight(50)
+        goal_edit.set_completion_terms(deck_terms)
         context_layout.addWidget(goal_label)
         context_layout.addWidget(goal_edit)
         
         concerns_label = QLabel("Concerns:")
-        concerns_edit = QTextEdit()
+        concerns_edit = DeckAwareTextEdit()
         concerns_edit.setPlainText(concerns)
         concerns_edit.setMaximumHeight(50)
+        concerns_edit.set_completion_terms(deck_terms)
         context_layout.addWidget(concerns_label)
         context_layout.addWidget(concerns_edit)
         
         notes_label = QLabel("Notes:")
-        notes_edit = QTextEdit()
+        notes_edit = DeckAwareTextEdit()
         notes_edit.setPlainText(notes)
         notes_edit.setMaximumHeight(50)
+        notes_edit.set_completion_terms(deck_terms)
         context_layout.addWidget(notes_label)
         context_layout.addWidget(notes_edit)
         
@@ -1766,6 +1855,8 @@ class MainWindow(QMainWindow):
         view = self.loaded_league_views.get(league_path)
         if not isinstance(view, dict):
             return
+
+        deck_terms = build_decklist_autocomplete_terms(str(snapshot.get("decklist", "")))
 
         match_tabs = view.get("match_tabs")
         if not isinstance(match_tabs, QTabWidget):
@@ -1852,18 +1943,21 @@ class MainWindow(QMainWindow):
             tab_layout.addWidget(summary_box)
 
             form = QFormLayout()
-            sideboard_edit = QTextEdit()
+            sideboard_edit = DeckAwareTextEdit()
             sideboard_edit.setMaximumHeight(90)
+            sideboard_edit.set_completion_terms(deck_terms)
             sideboard_text = str(match.get("sideboard_notes", ""))
             sideboard_edit.setPlainText(sideboard_text)
 
-            key_moments_edit = QTextEdit()
+            key_moments_edit = DeckAwareTextEdit()
             key_moments_edit.setMaximumHeight(90)
+            key_moments_edit.set_completion_terms(deck_terms)
             key_moments_text = str(match.get("key_moments", ""))
             key_moments_edit.setPlainText(key_moments_text)
 
-            observations_edit = QTextEdit()
+            observations_edit = DeckAwareTextEdit()
             observations_edit.setMaximumHeight(90)
+            observations_edit.set_completion_terms(deck_terms)
             observations_text = str(match.get("observations", ""))
             observations_edit.setPlainText(observations_text)
 
@@ -2604,6 +2698,7 @@ class MainWindow(QMainWindow):
 
         self.deck_list_name.setText(self._deck_list_name_from_file(file_path))
         self._warn_if_unusual_decklist_size(content)
+        self._refresh_text_autocomplete_terms(content)
 
         self._append_status(f"Imported decklist file: {file_path}")
 
@@ -2704,6 +2799,7 @@ class MainWindow(QMainWindow):
         self.imported_decklist_path = ""
         self.imported_decklist_content = ""
         self.decklist_import_label.setText("No file imported")
+        self._refresh_text_autocomplete_terms()
 
     def _on_create_league(self) -> None:
         deck_name = self.deck_name.currentText().strip()
@@ -3020,6 +3116,7 @@ class MainWindow(QMainWindow):
         if not has_active:
             self.current_league_label.setText("Active league: none")
             self._refresh_deck_choices_for_format(self.format_name.currentText())
+            self._refresh_text_autocomplete_terms("")
             self._refresh_match_notes_tabs()
             return
 
@@ -3039,6 +3136,7 @@ class MainWindow(QMainWindow):
         if league_format:
             self.format_name.setCurrentText(league_format)
         self._refresh_deck_choices_for_format(league_format or self.format_name.currentText())
+        self._refresh_text_autocomplete_terms()
         self._load_or_focus_loaded_league(normalized_path)
         self._refresh_match_notes_tabs()
 

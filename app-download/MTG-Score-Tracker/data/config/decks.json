@@ -11,7 +11,7 @@
   "5c Stiflenought": "Other",
   "Abzan Greasefang": "Other",
   "Abzan Midrange": "Midrange",
-  "Affinity": "Other",
+  "Affinity": "Aggro",
   "Affinity Stompy": "Other",
   "Aluren": "Other",
   "Amulet Titan": "Combo",
@@ -180,5 +180,6 @@
   "WUR": "Other",
   "WURG": "Other",
   "White Aggro": "Aggro",
-  "Yawgmoth": "Combo"
+  "Yawgmoth": "Combo",
+  "Zoo": "Midrange"
 }
